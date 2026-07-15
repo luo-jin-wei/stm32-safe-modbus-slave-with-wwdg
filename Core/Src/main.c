@@ -81,29 +81,14 @@ int main(void)
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
-	D1_ON; 
-	HAL_Delay(500);
-	D1_OFF; 
   /* USER CODE BEGIN Init */
-
   /* USER CODE END Init */
-
   /* Configure the system clock */
   SystemClock_Config();
-	D2_ON; 
-	HAL_Delay(500);
-	D2_OFF; 
   /* USER CODE BEGIN SysInit */
   MX_GPIO_Init();
-	D3_ON; 
-	HAL_Delay(500);
-	D3_OFF; 
   MX_DMA_Init();
-	D4_ON;  
-	HAL_Delay(500);
-	D4_OFF; 
   MX_USART1_UART_Init();
-	D1_ON; 
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -114,6 +99,42 @@ int main(void)
 	HAL_NVIC_SetPriority(USART1_IRQn, 0, 0);
 	HAL_NVIC_EnableIRQ(USART1_IRQn);
 	rb_init(&rx_rb);
+
+		/* === 7.16 Ring Buffer 纯 C 验证 === */
+		uint8_t test_data[] = "HelloRingBuffer_ABCDEFG_12345";
+		for (int i = 0; i < (int)(sizeof(test_data) - 1); i++) {
+			rb_put(&rx_rb, test_data[i]);
+		}
+		uint8_t out;
+		printf("[RB_TEST] Write then read: ");
+		while (rb_get(&rx_rb, &out)) {
+			printf("%c", out);
+		}
+		printf("\r\n");
+
+		// 验证环绕（wrap around）
+		rb_reset(&rx_rb);
+		for (int i = 0; i < 250; i++) {
+			rb_put(&rx_rb, 'A');
+		}
+		for (int i = 0; i < 250; i++) {
+			rb_get(&rx_rb, &out);
+		}
+		rb_put(&rx_rb, 'X');
+		rb_put(&rx_rb, 'Y');
+		uint8_t out1, out2;
+		rb_get(&rx_rb, &out1);
+		rb_get(&rx_rb, &out2);
+		printf("[RB_TEST] Wrap around: %c %c\r\n", out1, out2);
+
+		// 验证满缓冲拒绝写入
+		rb_reset(&rx_rb);
+		int ok_count = 0;
+		for (int i = 0; i < 300; i++) {
+			if (rb_put(&rx_rb, 'Z')) ok_count++;
+		}
+		printf("[RB_TEST] Buffer full test: wrote %d bytes (expected 255)\r\n", ok_count);
+		/* === 7.16 验证结束 === */
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -122,7 +143,9 @@ int main(void)
   {
     /* USER CODE END WHILE */
     /* USER CODE BEGIN 3 */
-		if (rx_idle_flag == 1)
+		
+		 // main.c
+  if (rx_idle_flag == 1)
   {
       rx_idle_flag = 0;
       uint16_t rx_len = 256 - __HAL_DMA_GET_COUNTER(&hdma_usart1_rx);
@@ -135,17 +158,25 @@ int main(void)
   }
 		
 		
+		
+		
+		
+		
+		
+		
 //		if (rx_idle_flag == 1)
 //		{
 //			rx_idle_flag = 0;
 //			uint8_t data;
-//			while (rb_get(&rx_rb, &data) == 1) 
+//			while (rb_get(&rx_rb, &data) == 1)
 //			{
 //				printf("%c", data);
 //			}
-//			printf("\r\n");
+//			HAL_UART_AbortReceive(&huart1);
 //			HAL_UART_Receive_DMA(&huart1, rx_buf, 256);
 //		}
+		
+		
   }
   /* USER CODE END 3 */
 }
