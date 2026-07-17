@@ -234,16 +234,16 @@ void DMA1_Channel5_IRQHandler(void)
 
 void USART1_IRQHandler(void)
 {
-    if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_IDLE) != RESET)
-    {
-        __HAL_UART_CLEAR_IDLEFLAG(&huart1);
-        uint16_t rx_len = 256 - __HAL_DMA_GET_COUNTER(&hdma_usart1_rx);
-        for (uint16_t i = 0; i < rx_len; i++)
+    if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_IDLE) != RESET)   //总线空闲触发中断
+    { 
+        __HAL_UART_CLEAR_IDLEFLAG(&huart1);                     //清除标志
+        uint16_t rx_len = 256 - __HAL_DMA_GET_COUNTER(&hdma_usart1_rx);    //计算本次帧的字节数
+        for (uint16_t i = 0; i < rx_len; i++)                   //数据从 DMA 缓存搬到环形缓冲区
         {
             rb_put(&rx_rb, rx_buf[i]);
         }
-				HAL_UART_AbortReceive(&huart1); 
-				HAL_UART_Receive_DMA(&huart1, rx_buf, 256); 
+				HAL_UART_AbortReceive(&huart1);                       //停止当前的 DMA 传输
+				HAL_UART_Receive_DMA(&huart1, rx_buf, 256);                //重新启动 DMA 接收
         rx_idle_flag = 1;
     }
 }
