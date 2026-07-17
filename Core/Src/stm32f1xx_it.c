@@ -221,28 +221,30 @@ void DMA1_Channel5_IRQHandler(void)
 /**
   * @brief This function handles USART1 global interrupt.
   */
-void USART1_IRQHandler(void)
-  {
-      if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_IDLE) != RESET)
-      {
-          __HAL_UART_CLEAR_IDLEFLAG(&huart1);
-          rx_idle_flag = 1;
-      }
-  }
-
-
-
 //void USART1_IRQHandler(void)
 //{
-//    if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_IDLE) != RESET)
-//    {
-//        __HAL_UART_CLEAR_IDLEFLAG(&huart1);
-//        uint16_t rx_len = 256 - __HAL_DMA_GET_COUNTER(&hdma_usart1_rx);
-//        for (uint16_t i = 0; i < rx_len; i++)
-//        {
-//            rb_put(&rx_rb, rx_buf[i]);
-//        }
-//        rx_idle_flag = 1;
-//    }
+//		if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_IDLE) != RESET)
+//		{
+//				__HAL_UART_CLEAR_IDLEFLAG(&huart1);
+//				rx_idle_flag = 1;
+//		}
 //}
+
+
+
+void USART1_IRQHandler(void)
+{
+    if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_IDLE) != RESET)
+    {
+        __HAL_UART_CLEAR_IDLEFLAG(&huart1);
+        uint16_t rx_len = 256 - __HAL_DMA_GET_COUNTER(&hdma_usart1_rx);
+        for (uint16_t i = 0; i < rx_len; i++)
+        {
+            rb_put(&rx_rb, rx_buf[i]);
+        }
+				HAL_UART_AbortReceive(&huart1); 
+				HAL_UART_Receive_DMA(&huart1, rx_buf, 256); 
+        rx_idle_flag = 1;
+    }
+}
 /* USER CODE END 1 */

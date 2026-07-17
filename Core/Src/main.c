@@ -25,6 +25,7 @@
 #include "dma.h"
 #include "usart1.h"
 #include "ring_buffer.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -47,8 +48,8 @@ UART_HandleTypeDef huart1;
 DMA_HandleTypeDef hdma_usart1_rx;
 
 /* USER CODE BEGIN PV */
-uint8_t rx_buf[256];           //DMA���ջ��������㹻������� Modbus ֡
-volatile uint8_t rx_idle_flag = 0;      //�����жϱ�־λ�����ڽ���һ֡�������ݣ����ֿ���ʱ�����жϽ�����Ϊ1
+uint8_t rx_buf[256];           
+volatile uint8_t rx_idle_flag = 0;      //软件变量
 ring_buffer_t rx_rb;
 /* USER CODE END PV */
 
@@ -99,42 +100,60 @@ int main(void)
 	HAL_NVIC_SetPriority(USART1_IRQn, 0, 0);
 	HAL_NVIC_EnableIRQ(USART1_IRQn);
 	rb_init(&rx_rb);
+	
+	
+//	
+//	/* === 7.16 Ring Buffer 纯 C 验证 === */
+//        uint8_t tx_buf[128];
+//        uint16_t tx_len = 0;
+//        uint8_t out;
 
-		/* === 7.16 Ring Buffer 纯 C 验证 === */
-		uint8_t test_data[] = "HelloRingBuffer_ABCDEFG_12345";
-		for (int i = 0; i < (int)(sizeof(test_data) - 1); i++) {
-			rb_put(&rx_rb, test_data[i]);
-		}
-		uint8_t out;
-		printf("[RB_TEST] Write then read: ");
-		while (rb_get(&rx_rb, &out)) {
-			printf("%c", out);
-		}
-		printf("\r\n");
+//        // 测试1：基本读写
+//        uint8_t test_data[] = "HelloRingBuffer_ABCDEFG_12345";
+//        for (int i = 0; i < (int)(sizeof(test_data) - 1); i++) {
+//                rb_put(&rx_rb, test_data[i]);
+//        }
+//        tx_len = 0;
+//        while (rb_get(&rx_rb, &out) && tx_len < 128) {
+//                tx_buf[tx_len++] = out;
+//        }
+//        HAL_UART_Transmit(&huart1, (uint8_t*)"[RB_TEST1] ", 11, 100);
+//        HAL_UART_Transmit(&huart1, tx_buf, tx_len, 100);
+//        HAL_UART_Transmit(&huart1, (uint8_t*)"\r\n", 2, 100);
 
-		// 验证环绕（wrap around）
-		rb_reset(&rx_rb);
-		for (int i = 0; i < 250; i++) {
-			rb_put(&rx_rb, 'A');
-		}
-		for (int i = 0; i < 250; i++) {
-			rb_get(&rx_rb, &out);
-		}
-		rb_put(&rx_rb, 'X');
-		rb_put(&rx_rb, 'Y');
-		uint8_t out1, out2;
-		rb_get(&rx_rb, &out1);
-		rb_get(&rx_rb, &out2);
-		printf("[RB_TEST] Wrap around: %c %c\r\n", out1, out2);
+//        // 测试2：环绕（wrap around）
+//        rb_reset(&rx_rb);
+//        for (int i = 0; i < 250; i++) {
+//                rb_put(&rx_rb, 'A');
+//        }
+//        for (int i = 0; i < 250; i++) {
+//                rb_get(&rx_rb, &out);
+//        }
+//        rb_put(&rx_rb, 'X');
+//        rb_put(&rx_rb, 'Y');
+//        uint8_t out1, out2;
+//        rb_get(&rx_rb, &out1);
+//        rb_get(&rx_rb, &out2);
+//        HAL_UART_Transmit(&huart1, (uint8_t*)"[RB_TEST2] Wrap: ", 17, 100);
+//        HAL_UART_Transmit(&huart1, &out1, 1, 100);
+//        HAL_UART_Transmit(&huart1, (uint8_t*)" ", 1, 100);
+//        HAL_UART_Transmit(&huart1, &out2, 1, 100);
+//        HAL_UART_Transmit(&huart1, (uint8_t*)"\r\n", 2, 100);
 
-		// 验证满缓冲拒绝写入
-		rb_reset(&rx_rb);
-		int ok_count = 0;
-		for (int i = 0; i < 300; i++) {
-			if (rb_put(&rx_rb, 'Z')) ok_count++;
-		}
-		printf("[RB_TEST] Buffer full test: wrote %d bytes (expected 255)\r\n", ok_count);
-		/* === 7.16 验证结束 === */
+//        // 测试3：满缓冲拒绝写入
+//        rb_reset(&rx_rb);
+//        int ok_count = 0;
+//        for (int i = 0; i < 300; i++) {
+//                if (rb_put(&rx_rb, 'Z')) ok_count++;
+//        }
+//        char full_msg[64];
+//        int full_len = snprintf(full_msg, sizeof(full_msg),
+//                "[RB_TEST3] Full buffer: wrote %d (expected 255)\r\n", ok_count);
+//        HAL_UART_Transmit(&huart1, (uint8_t*)full_msg, full_len, 100);
+//        /* === 7.16 验证结束 === */
+//	
+	
+	
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -145,37 +164,53 @@ int main(void)
     /* USER CODE BEGIN 3 */
 		
 		 // main.c
-  if (rx_idle_flag == 1)
-  {
-      rx_idle_flag = 0;
-      uint16_t rx_len = 256 - __HAL_DMA_GET_COUNTER(&hdma_usart1_rx);
-      if (rx_len > 0)
-      {
-          HAL_UART_Transmit(&huart1, rx_buf, rx_len, 100);  // 回显
-      }
-      HAL_UART_AbortReceive(&huart1);
-      HAL_UART_Receive_DMA(&huart1, rx_buf, 256);
-  }
+//  if (rx_idle_flag == 1)
+//  {
+//      rx_idle_flag = 0;
+//      uint16_t rx_len = 256 - __HAL_DMA_GET_COUNTER(&hdma_usart1_rx);
+//      if (rx_len > 0)
+//      {
+//          HAL_UART_Transmit(&huart1, rx_buf, rx_len, 100);  // 回显
+//      }
+//      HAL_UART_AbortReceive(&huart1);
+//      HAL_UART_Receive_DMA(&huart1, rx_buf, 256);
+//  }
+//		
+
 		
-		
-		
-		
-		
-		
-		
-		
-//		if (rx_idle_flag == 1)
-//		{
-//			rx_idle_flag = 0;
-//			uint8_t data;
-//			while (rb_get(&rx_rb, &data) == 1)
-//			{
-//				printf("%c", data);
-//			}
-//			HAL_UART_AbortReceive(&huart1);
-//			HAL_UART_Receive_DMA(&huart1, rx_buf, 256);
-//		}
-		
+		if (rx_idle_flag == 1)
+		{
+			rx_idle_flag = 0;
+			uint8_t data;
+			while (rb_get(&rx_rb, &data) == 1)
+			{
+				printf("%c", data);
+			}
+			printf("\r\n"); 
+			//HAL_UART_AbortReceive(&huart1);
+			//HAL_UART_Receive_DMA(&huart1, rx_buf, 256);
+		}
+//	if (rx_idle_flag == 1)
+//  {
+//      rx_idle_flag = 0;
+//      uint8_t data;
+//      uint8_t tx_buf[64];
+//      uint16_t tx_len = 0;
+
+//      while (rb_get(&rx_rb, &data) == 1 && tx_len < 64)
+//      {
+//          tx_buf[tx_len++] = data;
+//      }
+
+//      if (tx_len > 0)
+//      {
+//          HAL_UART_Transmit(&huart1, tx_buf, tx_len, 100);
+//          HAL_UART_Transmit(&huart1, (uint8_t*)"\r\n", 2, 100);
+//      }
+
+//      HAL_UART_AbortReceive(&huart1);
+//      HAL_UART_Receive_DMA(&huart1, rx_buf, 256);
+//  }	
 		
   }
   /* USER CODE END 3 */

@@ -6,7 +6,6 @@
 "test\main.o"
 "test\stm32f1xx_it.o"
 "test\stm32f1xx_hal_msp.o"
-"test\ring_buffer.o"
 "test\stm32f1xx_hal_gpio_ex.o"
 "test\stm32f1xx_hal_uart.o"
 "test\stm32f1xx_hal.o"
@@ -20,7 +19,9 @@
 "test\stm32f1xx_hal_flash_ex.o"
 "test\stm32f1xx_hal_exti.o"
 "test\system_stm32f1xx.o"
---strict --scatter "test\test.sct"
+"test\ring_buffer.o"
+"test\frame_parser.o"
+--library_type=microlib --strict --scatter "test\test.sct"
 --summary_stderr --info summarysizes --map --load_addr_map_info --xref --callgraph --symbols
 --info sizes --info totals --info unused --info veneers
 --list "test.map" -o test\test.axf
