@@ -4,6 +4,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+/* 软件计数器相关配置 */
+#define MAX_FRAME_DATA_LEN  128     // 单帧最大允许数据长度（字节）
+#define MAX_FRAME_TOTAL_LEN 260     // 整帧最大总长度（addr+func+len+data+crc，留一点余量）
+extern volatile uint32_t g_frame_err_overlen_cnt;
+
+
+
 // 定义状态机的所有状态
 typedef enum {
     STATE_IDLE,    // 空闲，等待帧头
@@ -24,6 +31,7 @@ typedef struct {
     uint8_t crc_high;      // CRC高字节
     uint8_t crc_low;       // CRC低字节
     uint8_t crc_count;     // 已收的CRC字节数（0或1）
+		uint16_t rx_count; 
     ParserState_t state;   // 当前状态
 } FrameParser_t;
 

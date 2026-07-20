@@ -1,6 +1,9 @@
 #include "frame_parser.h"
 #include <string.h>  // 用到 memset
 
+/* 超长帧丢弃计数器定义 */
+volatile uint32_t g_frame_err_overlen_cnt = 0;
+
 // 初始化：把状态机复位到 IDLE 状态
 void parser_init(FrameParser_t *parser) {
     // 把整个结构体清零
@@ -10,6 +13,15 @@ void parser_init(FrameParser_t *parser) {
 
 
 bool parser_feed(FrameParser_t *parser, uint8_t byte) {
+	
+		parser->rx_count++;
+		if (parser->rx_count > MAX_FRAME_TOTAL_LEN) {
+				parser_init(parser);
+				g_frame_err_overlen_cnt++;
+				return false;
+		}
+		
+		
     // 使用 switch 根据当前状态决定如何处理这个字节
     switch (parser->state) {
 
@@ -19,6 +31,7 @@ bool parser_feed(FrameParser_t *parser, uint8_t byte) {
             // 不是 0x01，直接丢弃（忽略噪声）
             if (byte == 0x01) {
                 parser->addr = byte;        // 存地址
+								parser->rx_count = 1;
                 parser->state = STATE_ADDR; // 切到下一个状态
             }
             //byte != 0x01，不干事
@@ -32,6 +45,12 @@ bool parser_feed(FrameParser_t *parser, uint8_t byte) {
 
         //  3. 接收长度
         case STATE_FUNC:
+					if (byte > MAX_FRAME_DATA_LEN) 
+						{
+								parser_init(parser);
+								g_frame_err_overlen_cnt++;
+								return false;
+						}
             parser->len = byte;
             parser->data_index = 0;          // 重置数据区指针
             parser->state = STATE_LEN;

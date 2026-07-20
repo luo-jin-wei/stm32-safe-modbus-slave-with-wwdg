@@ -18,15 +18,17 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "dma.h"
+#include "tim.h"
+#include "usart.h"
+#include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "led.h"
-#include "dma.h"
-#include "usart1.h"
 #include "ring_buffer.h"
 #include "frame_parser.h"
-
+#include "crc16.h" 
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -45,8 +47,6 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-UART_HandleTypeDef huart1;
-DMA_HandleTypeDef hdma_usart1_rx;
 
 /* USER CODE BEGIN PV */
 uint8_t rx_buf[256];           
@@ -57,7 +57,6 @@ ring_buffer_t rx_rb;
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
-
 /* USER CODE BEGIN PFP */
 void MX_GPIO_Init(void);
 void MX_DMA_Init(void);
@@ -85,76 +84,37 @@ int main(void)
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
+
   /* USER CODE BEGIN Init */
   /* USER CODE END Init */
+
   /* Configure the system clock */
   SystemClock_Config();
+
   /* USER CODE BEGIN SysInit */
-  MX_GPIO_Init();
-  MX_DMA_Init();
-  MX_USART1_UART_Init();
+ 
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
-
+  MX_GPIO_Init();
+  MX_DMA_Init();
+  MX_USART1_UART_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-	HAL_UART_Receive_DMA(&huart1, rx_buf, 256);          //���� DMA ���գ����Ӵ��ڣ�USART1���� RX
-	__HAL_UART_ENABLE_IT(&huart1, UART_IT_IDLE);          //ʹ�ܿ����ж�
+	HAL_UART_Receive_DMA(&huart1, rx_buf, 256);         
+	__HAL_UART_ENABLE_IT(&huart1, UART_IT_IDLE);         
 	HAL_NVIC_SetPriority(USART1_IRQn, 0, 0);
 	HAL_NVIC_EnableIRQ(USART1_IRQn);
 	rb_init(&rx_rb);
 	parser_init(&my_parser);
-	
-//	
-//	/* === 7.16 Ring Buffer 纯 C 验证 === */
-//        uint8_t tx_buf[128];
-//        uint16_t tx_len = 0;
-//        uint8_t out;
+	HAL_TIM_Base_Start_IT(&htim2); 
 
-//        // 测试1：基本读写
-//        uint8_t test_data[] = "HelloRingBuffer_ABCDEFG_12345";
-//        for (int i = 0; i < (int)(sizeof(test_data) - 1); i++) {
-//                rb_put(&rx_rb, test_data[i]);
-//        }
-//        tx_len = 0;
-//        while (rb_get(&rx_rb, &out) && tx_len < 128) {
-//                tx_buf[tx_len++] = out;
-//        }
-//        HAL_UART_Transmit(&huart1, (uint8_t*)"[RB_TEST1] ", 11, 100);
-//        HAL_UART_Transmit(&huart1, tx_buf, tx_len, 100);
-//        HAL_UART_Transmit(&huart1, (uint8_t*)"\r\n", 2, 100);
 
-//        // 测试2：环绕（wrap around）
-//        rb_reset(&rx_rb);
-//        for (int i = 0; i < 250; i++) {
-//                rb_put(&rx_rb, 'A');
-//        }
-//        for (int i = 0; i < 250; i++) {
-//                rb_get(&rx_rb, &out);
-//        }
-//        rb_put(&rx_rb, 'X');
-//        rb_put(&rx_rb, 'Y');
-//        uint8_t out1, out2;
-//        rb_get(&rx_rb, &out1);
-//        rb_get(&rx_rb, &out2);
-//        HAL_UART_Transmit(&huart1, (uint8_t*)"[RB_TEST2] Wrap: ", 17, 100);
-//        HAL_UART_Transmit(&huart1, &out1, 1, 100);
-//        HAL_UART_Transmit(&huart1, (uint8_t*)" ", 1, 100);
-//        HAL_UART_Transmit(&huart1, &out2, 1, 100);
-//        HAL_UART_Transmit(&huart1, (uint8_t*)"\r\n", 2, 100);
+	D1_OFF;
+	D2_OFF;
+	D3_OFF;
+	D4_OFF;
 
-//        // 测试3：满缓冲拒绝写入
-//        rb_reset(&rx_rb);
-//        int ok_count = 0;
-//        for (int i = 0; i < 300; i++) {
-//                if (rb_put(&rx_rb, 'Z')) ok_count++;
-//        }
-//        char full_msg[64];
-//        int full_len = snprintf(full_msg, sizeof(full_msg),
-//                "[RB_TEST3] Full buffer: wrote %d (expected 255)\r\n", ok_count);
-//        HAL_UART_Transmit(&huart1, (uint8_t*)full_msg, full_len, 100);
-//        /* === 7.16 验证结束 === */
-//	
 	
 	
   /* USER CODE END 2 */
@@ -164,6 +124,7 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
+
     /* USER CODE BEGIN 3 */
 
 		  if (rx_idle_flag == 1)
@@ -174,38 +135,79 @@ int main(void)
         /* 从环形缓冲区中取出所有字节，逐个喂给状态机 */
         while (rb_get(&rx_rb, &byte) == 1)
         {
-            /* 喂一个字节给状态机，如果返回 true，说明已拆出一帧完整数据 */
-            if (parser_feed(&my_parser, byte) == true)
-            {
-                /* ---------- 成功拆帧，打印解析结果 ---------- */
-                char buf[128];
-                int len = 0;
+						/* 喂一个字节给状态机，如果返回 true，说明已拆出一帧完整数据 */
+//						if (parser_feed(&my_parser, byte) == true)
+//						{
+//							/* ---------- CRC 校验 ---------- */
+//							// 1. 把收到的 CRC 组合成一个 uint16_t
+//							//    注意：你的 parser 里 crc_low 是先收到的，crc_high 是后收到的
+//							uint16_t rx_crc = ((uint16_t)my_parser.crc_high << 8) | my_parser.crc_low;
 
-                len = sprintf(buf, "\r\n=== Frame ===\r\n");
-                HAL_UART_Transmit(&huart1, (uint8_t*)buf, len, 100);
+//							// 2. 计算本帧的 CRC（范围：addr + func + len + data）
+//							uint16_t calc_crc = crc16_modbus_frame(my_parser.addr, my_parser.func, my_parser.len, my_parser.data);
 
-                len = sprintf(buf, "Addr: 0x%02X\r\n", my_parser.addr);
-                HAL_UART_Transmit(&huart1, (uint8_t*)buf, len, 100);
+//							// 3. 比对
+//							if (calc_crc == rx_crc)
+//							{
+//									/* ---------- CRC 正确，打印帧内容 ---------- */
+//									char buf[128];
+//									int len = 0;
 
-                len = sprintf(buf, "Func: 0x%02X\r\n", my_parser.func);
-                HAL_UART_Transmit(&huart1, (uint8_t*)buf, len, 100);
+//									len = sprintf(buf, "\r\n=== Frame ===\r\n");
+//									HAL_UART_Transmit(&huart1, (uint8_t*)buf, len, 100);
 
-                len = sprintf(buf, "Len : %d\r\n", my_parser.len);
-                HAL_UART_Transmit(&huart1, (uint8_t*)buf, len, 100);
+//									len = sprintf(buf, "Addr: 0x%02X\r\n", my_parser.addr);
+//									HAL_UART_Transmit(&huart1, (uint8_t*)buf, len, 100);
 
-                HAL_UART_Transmit(&huart1, (uint8_t*)"Data: ", 6, 100);
-                for (int i = 0; i < my_parser.len; i++) {
-                    len = sprintf(buf, "%02X ", my_parser.data[i]);
-                    HAL_UART_Transmit(&huart1, (uint8_t*)buf, len, 100);
-                }
-                HAL_UART_Transmit(&huart1, (uint8_t*)"\r\n", 2, 100);
+//									len = sprintf(buf, "Func: 0x%02X\r\n", my_parser.func);
+//									HAL_UART_Transmit(&huart1, (uint8_t*)buf, len, 100);
 
-                len = sprintf(buf, "CRC : 0x%02X%02X\r\n", my_parser.crc_high, my_parser.crc_low);
-                HAL_UART_Transmit(&huart1, (uint8_t*)buf, len, 100);
+//									len = sprintf(buf, "Len : %d\r\n", my_parser.len);
+//									HAL_UART_Transmit(&huart1, (uint8_t*)buf, len, 100);
 
-                HAL_UART_Transmit(&huart1, (uint8_t*)"=============\r\n", 15, 100);
-                /* ---------- 打印结束 ---------- */
-            }
+//									HAL_UART_Transmit(&huart1, (uint8_t*)"Data: ", 6, 100);
+//									for (int i = 0; i < my_parser.len; i++) {
+//											len = sprintf(buf, "%02X ", my_parser.data[i]);
+//											HAL_UART_Transmit(&huart1, (uint8_t*)buf, len, 100);
+//									}
+//									HAL_UART_Transmit(&huart1, (uint8_t*)"\r\n", 2, 100);
+
+//									len = sprintf(buf, "CRC : 0x%02X%02X\r\n", my_parser.crc_high, my_parser.crc_low);
+//									HAL_UART_Transmit(&huart1, (uint8_t*)buf, len, 100);
+
+//									HAL_UART_Transmit(&huart1, (uint8_t*)"=============\r\n", 15, 100);
+//							}
+//							else
+//							{
+//									/* ---------- CRC 错误，丢弃并提示 ---------- */
+//									HAL_UART_Transmit(&huart1, (uint8_t*)"CRC ERR\r\n", 9, 100);
+//							}
+//					}
+				 if (parser_feed(&my_parser, byte) == true)
+  {
+      // 把收到的 CRC 组合起来
+      uint16_t rx_crc = ((uint16_t)my_parser.crc_high << 8) | my_parser.crc_low;
+
+      // 计算本帧 CRC
+      uint16_t calc_crc = crc16_modbus_frame(my_parser.addr, my_parser.func, my_parser.len, my_parser.data);
+
+      /* ========== 加这两行调试打印 ========== */
+      char dbg[64];
+      int n = sprintf(dbg, "RX_CRC=0x%04X  CALC=0x%04X\r\n", rx_crc, calc_crc);
+      HAL_UART_Transmit(&huart1, (uint8_t*)dbg, n, 100);
+      /* ======================================= */
+
+      if (calc_crc == rx_crc)
+      {
+          HAL_UART_Transmit(&huart1, (uint8_t*)"Frame OK\r\n", 10, 100);
+      }
+      else
+      {
+          HAL_UART_Transmit(&huart1, (uint8_t*)"CRC ERR\r\n", 9, 100);
+      }
+  }
+
+
         }
     }
 
@@ -299,8 +301,6 @@ void SystemClock_Config(void)
     Error_Handler();
   }
 }
-
-
 
 /* USER CODE BEGIN 4 */
 

@@ -24,6 +24,7 @@
 /* USER CODE BEGIN Includes */
 #include "led.h"
 #include "ring_buffer.h"
+#include "frame_parser.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -57,9 +58,12 @@ extern volatile uint8_t rx_idle_flag;
 extern UART_HandleTypeDef huart1; 
 extern ring_buffer_t rx_rb;
 extern uint8_t rx_buf[];
+extern TIM_HandleTypeDef htim2;
+extern FrameParser_t my_parser;
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
+extern TIM_HandleTypeDef htim2;
 extern DMA_HandleTypeDef hdma_usart1_rx;
 /* USER CODE BEGIN EV */
 
@@ -217,6 +221,29 @@ void DMA1_Channel5_IRQHandler(void)
   /* USER CODE END DMA1_Channel5_IRQn 1 */
 }
 
+/**
+  * @brief This function handles TIM2 global interrupt.
+  */
+void TIM2_IRQHandler(void)
+{
+  /* USER CODE BEGIN TIM2_IRQn 0 */
+	if (__HAL_TIM_GET_FLAG(&htim2, TIM_FLAG_UPDATE) != RESET)
+	{
+			__HAL_TIM_CLEAR_IT(&htim2, TIM_IT_UPDATE);
+
+			/* 50ms 没收到任何字节 → 复位状态机，清空环形缓冲区 */
+			parser_init(&my_parser);
+			rb_reset(&rx_rb);
+
+			__HAL_TIM_DISABLE(&htim2);
+	}
+  /* USER CODE END TIM2_IRQn 0 */
+	HAL_TIM_IRQHandler(&htim2);
+  /* USER CODE BEGIN TIM2_IRQn 1 */
+
+  /* USER CODE END TIM2_IRQn 1 */
+}
+
 /* USER CODE BEGIN 1 */
 /**
   * @brief This function handles USART1 global interrupt.
@@ -230,21 +257,41 @@ void DMA1_Channel5_IRQHandler(void)
 //		}
 //}
 
-
-
+/* USER CODE BEGIN 1 */
 void USART1_IRQHandler(void)
 {
-    if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_IDLE) != RESET)   //总线空闲触发中断
-    { 
-        __HAL_UART_CLEAR_IDLEFLAG(&huart1);                     //清除标志
-        uint16_t rx_len = 256 - __HAL_DMA_GET_COUNTER(&hdma_usart1_rx);    //计算本次帧的字节数
-        for (uint16_t i = 0; i < rx_len; i++)                   //数据从 DMA 缓存搬到环形缓冲区
+    if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_IDLE) != RESET)
+    {
+        __HAL_UART_CLEAR_IDLEFLAG(&huart1);
+
+        /* 喂狗：收到新帧，重置定时器 */
+        __HAL_TIM_SET_COUNTER(&htim2, 0);
+        __HAL_TIM_ENABLE(&htim2);
+
+        uint16_t rx_len = 256 - __HAL_DMA_GET_COUNTER(&hdma_usart1_rx);
+        for (uint16_t i = 0; i < rx_len; i++)
         {
             rb_put(&rx_rb, rx_buf[i]);
         }
-				HAL_UART_AbortReceive(&huart1);                       //停止当前的 DMA 传输
-				HAL_UART_Receive_DMA(&huart1, rx_buf, 256);                //重新启动 DMA 接收
+        HAL_UART_AbortReceive(&huart1);
+        HAL_UART_Receive_DMA(&huart1, rx_buf, 256);
         rx_idle_flag = 1;
     }
 }
+
+
+//void TIM2_IRQHandler(void)
+//{
+//    if (__HAL_TIM_GET_FLAG(&htim2, TIM_FLAG_UPDATE) != RESET)
+//    {
+//        __HAL_TIM_CLEAR_FLAG(&htim2, TIM_FLAG_UPDATE);
+
+//        /* 50ms 没收到任何字节 → 复位状态机，清空环形缓冲区 */
+//        parser_init(&my_parser);
+//        rb_reset(&rx_rb);
+
+//        __HAL_TIM_DISABLE(&htim2);
+//    }
+//    HAL_TIM_IRQHandler(&htim2);
+//}
 /* USER CODE END 1 */
