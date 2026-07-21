@@ -49,7 +49,7 @@ uint16_t crc16_modbus(const uint8_t *data, uint16_t length)
     for (uint16_t i = 0; i < length; i++) {
         crc = (crc >> 8) ^ crc16_table[(crc ^ data[i]) & 0xFF];
     }
-    return crc;
+    return crc; 
 }
 
 uint8_t crc16_modbus_verify(const uint8_t *data, uint16_t length, uint16_t received_crc)

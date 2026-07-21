@@ -1,3 +1,10 @@
+/*
+串口帧解析状态机实现
+协议格式： [Addr] [Func] [Len] [Data...Len] [CRC_L] [CRC_H]
+*/
+
+
+
 #include "frame_parser.h"
 #include <string.h>  // 用到 memset
 
@@ -11,7 +18,7 @@ void parser_init(FrameParser_t *parser) {
     parser->state = STATE_IDLE;
 }
 
-
+//向解析器喂入一个字节，驱动状态机运转
 bool parser_feed(FrameParser_t *parser, uint8_t byte) {
 	
 		parser->rx_count++;
@@ -28,7 +35,7 @@ bool parser_feed(FrameParser_t *parser, uint8_t byte) {
         // 1. 空闲状态
         case STATE_IDLE:
             // 假设协议固定从机地址是 0x01（Modbus 标准）
-            // 不是 0x01，直接丢弃（忽略噪声）
+            // 不是 0x01，直接丢弃
             if (byte == 0x01) {
                 parser->addr = byte;        // 存地址
 								parser->rx_count = 1;

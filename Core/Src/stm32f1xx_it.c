@@ -260,21 +260,28 @@ void TIM2_IRQHandler(void)
 /* USER CODE BEGIN 1 */
 void USART1_IRQHandler(void)
 {
+	// 判断是否是空闲中断触发
     if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_IDLE) != RESET)
     {
+			//清除空闲中断标志位
         __HAL_UART_CLEAR_IDLEFLAG(&huart1);
 
-        /* 喂狗：收到新帧，重置定时器 */
+        // 喂狗：收到新帧，重置定时器 
         __HAL_TIM_SET_COUNTER(&htim2, 0);
         __HAL_TIM_ENABLE(&htim2);
 
+				//计算本次收到的有效数据长度
         uint16_t rx_len = 256 - __HAL_DMA_GET_COUNTER(&hdma_usart1_rx);
+			  //将数据放到FIFO里面
         for (uint16_t i = 0; i < rx_len; i++)
         {
             rb_put(&rx_rb, rx_buf[i]);
         }
+				//停止当前 DMA 接收，DMA 状态机恢复到初始（就绪）状态
         HAL_UART_AbortReceive(&huart1);
+				//重新启动 DMA 接收
         HAL_UART_Receive_DMA(&huart1, rx_buf, 256);
+				//主循环 while(1) 检测到该标志后会从环形缓冲区取数据解析
         rx_idle_flag = 1;
     }
 }
