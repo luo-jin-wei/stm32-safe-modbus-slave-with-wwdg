@@ -111,7 +111,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   {
       if (htim->Instance == TIM2)
       {
-          // ¿ÕÊµÏÖ£ºTIM2 µÄ³¬Ê±Âß¼­ÒÑÔÚ TIM2_IRQHandler ÖÐ´¦Àí
+          // ï¿½ï¿½Êµï¿½Ö£ï¿½TIM2 ï¿½Ä³ï¿½Ê±ï¿½ß¼ï¿½ï¿½ï¿½ï¿½ï¿½ TIM2_IRQHandler ï¿½Ð´ï¿½ï¿½ï¿½
       }
   }
 /* USER CODE END 1 */

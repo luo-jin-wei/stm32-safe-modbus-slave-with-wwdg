@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "dma.h"
+#include "i2c.h"
 #include "tim.h"
 #include "usart.h"
 #include "gpio.h"
@@ -29,6 +30,8 @@
 #include "ring_buffer.h"       //FIFO
 #include "frame_parser.h"      // 帧解析状态机
 #include "crc16.h"             // CRC16-Modbus 计算
+#include "sht30.h"
+#include "modbus_slave.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -96,10 +99,14 @@ int main(void)
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
+
+	
+	
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_USART1_UART_Init();
   MX_TIM2_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
 	HAL_UART_Receive_DMA(&huart1, rx_buf, 256); // 启动 DMA 接收，缓冲区 rx_buf
 	__HAL_UART_ENABLE_IT(&huart1, UART_IT_IDLE); //使能 USART1 空闲中断，检测一帧数据接收完毕        
@@ -115,6 +122,18 @@ int main(void)
 	D3_OFF;
 	D4_OFF;
 
+	float temp = 0.0f, hum = 0.0f;
+	uint8_t ret;
+
+	ret = sht30_init();
+	printf("SHT30 init: %d\r\n", ret);
+
+	ret = sht30_read_single_shot(&temp, &hum);
+	if (ret == 0) {
+			printf("Temp: %.2f°C, Hum: %.2f%%\r\n", temp, hum);
+	} else {
+			printf("SHT30 read error: %d\r\n", ret);
+	}
 	
 	
   /* USER CODE END 2 */
@@ -126,42 +145,92 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+		
+		if (rx_idle_flag == 1)
+		{
+				rx_idle_flag = 0;
+				uint8_t byte;
+				uint8_t tx_buf[64];
+				uint8_t tx_len = 0;
 
-		  if (rx_idle_flag == 1)
-    {
-        rx_idle_flag = 0;                 //清除标志，允许接收下一帧
-        uint8_t byte;
-
-        // 从环形缓冲区中取出所有字节，逐个喂给状态机
-        while (rb_get(&rx_rb, &byte) == 1)
-        {
-// parser_feed 返回 true 表示已组装完成一帧完整数据（地址+功能码+长度+数据+CRC）
-					if (parser_feed(&my_parser, byte) == true)
+				while (rb_get(&rx_rb, &byte) == 1)
+				{
+						if (parser_feed(&my_parser, byte) == true)
 						{
-								// 把收到的 CRC 组合为一个 16 位值
-								uint16_t rx_crc = ((uint16_t)my_parser.crc_high << 8) | my_parser.crc_low;
+								// 处理 Modbus 请求，构造响应帧
+								modbus_process_request(&my_parser, tx_buf, &tx_len);
 
-								// 计算本帧 CRC
-								uint16_t calc_crc = crc16_modbus_frame(my_parser.addr, my_parser.func, my_parser.len, my_parser.data);
-
-								//调试打印
-								char dbg[64];
-								int n = sprintf(dbg, "RX_CRC=0x%04X  CALC=0x%04X\r\n", rx_crc, calc_crc);
-								HAL_UART_Transmit(&huart1, (uint8_t*)dbg, n, 100);
-
-//								if (calc_crc == rx_crc)
-//								{
-//										HAL_UART_Transmit(&huart1, (uint8_t*)"Frame OK\r\n", 10, 100);
-//								}
-//								else
-//								{
-//										HAL_UART_Transmit(&huart1, (uint8_t*)"CRC ERR\r\n", 9, 100);
-//								}
+								// 如果有响应，发回给 Modbus Poll
+								if (tx_len > 0) {
+										HAL_UART_Transmit(&huart1, tx_buf, tx_len, 100);
+								}
 						}
-							
+				}
+		}
+		
+		
+		static uint32_t last_tick = 0;
+  if (HAL_GetTick() - last_tick >= 1000) {
+      last_tick = HAL_GetTick();
+      float temp, hum;
+      if (sht30_read_single_shot(&temp, &hum) == 0) {
+          int16_t temp_int = (int16_t)(temp * 10);  // 30.86°C → 308
+          holding_regs[0] = (temp_int >> 8) & 0xFF;  // 0x0000 = 温度高字节
+          holding_regs[1] = temp_int & 0xFF;         // 0x0001 = 温度低字节
+      }
+  }
+		
+		
+		
+		
+		
+		
+		
+		
 
-        }
-    }
+//		  if (rx_idle_flag == 1)
+//    {
+//        rx_idle_flag = 0;                 //清除标志，允许接收下一帧
+//        uint8_t byte;
+
+////				float temp, hum;
+////				if (sht30_read_single_shot(&temp, &hum) == 0)
+////				{
+////						printf("Temp: %.2f C, Hum: %.2f %%\r\n", temp, hum);
+////				}
+////				HAL_Delay(1000);  // 每秒读一次
+//			
+//			
+//        // 从环形缓冲区中取出所有字节，逐个喂给状态机
+//        while (rb_get(&rx_rb, &byte) == 1)
+//        {
+//// parser_feed 返回 true 表示已组装完成一帧完整数据（地址+功能码+长度+数据+CRC）
+//					if (parser_feed(&my_parser, byte) == true)
+//						{
+//								// 把收到的 CRC 组合为一个 16 位值
+//								uint16_t rx_crc = ((uint16_t)my_parser.crc_high << 8) | my_parser.crc_low;
+
+//								// 计算本帧 CRC
+//								uint16_t calc_crc = crc16_modbus_frame(my_parser.addr, my_parser.func, my_parser.len, my_parser.data);
+
+//								//调试打印
+//								char dbg[64];
+//								int n = sprintf(dbg, "RX_CRC=0x%04X  CALC=0x%04X\r\n", rx_crc, calc_crc);
+//								HAL_UART_Transmit(&huart1, (uint8_t*)dbg, n, 100);
+
+////								if (calc_crc == rx_crc)
+////								{
+////										HAL_UART_Transmit(&huart1, (uint8_t*)"Frame OK\r\n", 10, 100);
+////								}
+////								else
+////								{
+////										HAL_UART_Transmit(&huart1, (uint8_t*)"CRC ERR\r\n", 9, 100);
+////								}
+//						}
+//							
+
+//        }
+//    }
 		
   }
   /* USER CODE END 3 */

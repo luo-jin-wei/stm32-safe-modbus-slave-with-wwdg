@@ -1,98 +1,82 @@
-/*
-串口帧解析状态机实现
-协议格式： [Addr] [Func] [Len] [Data...Len] [CRC_L] [CRC_H]
-*/
-
-
-
 #include "frame_parser.h"
-#include <string.h>  // 用到 memset
+#include <string.h>
 
 /* 超长帧丢弃计数器定义 */
 volatile uint32_t g_frame_err_overlen_cnt = 0;
 
-// 初始化：把状态机复位到 IDLE 状态
-void parser_init(FrameParser_t *parser) {
-    // 把整个结构体清零
+/* 根据功能码确定请求帧的数据区长度 */
+static uint8_t get_data_expected(uint8_t func)
+{
+    switch (func) {
+        case 0x03:  // 读保持寄存器请求：起始地址(2) + 寄存器数量(2) = 4
+        case 0x06:  // 写单个寄存器请求：起始地址(2) + 写入值(2) = 4
+            return 4;
+        default:
+            return 4;  // 默认按 4 字节处理（异常时超时机制会清掉）
+    }
+}
+
+void parser_init(FrameParser_t *parser)
+{
     memset(parser, 0, sizeof(FrameParser_t));
     parser->state = STATE_IDLE;
 }
 
-//向解析器喂入一个字节，驱动状态机运转
-bool parser_feed(FrameParser_t *parser, uint8_t byte) {
-	
-		parser->rx_count++;
-		if (parser->rx_count > MAX_FRAME_TOTAL_LEN) {
-				parser_init(parser);
-				g_frame_err_overlen_cnt++;
-				return false;
-		}
-		
-		
-    // 使用 switch 根据当前状态决定如何处理这个字节
+bool parser_feed(FrameParser_t *parser, uint8_t byte)
+{
+    parser->rx_count++;
+
+    /* 第一层保护：整帧总长度超限，强制丢弃 */
+    if (parser->rx_count > MAX_FRAME_TOTAL_LEN) {
+        parser_init(parser);
+        g_frame_err_overlen_cnt++;
+        return false;
+    }
+
     switch (parser->state) {
 
-        // 1. 空闲状态
         case STATE_IDLE:
-            // 假设协议固定从机地址是 0x01（Modbus 标准）
-            // 不是 0x01，直接丢弃
+            /* Modbus 从机只响应指定地址（默认 0x01） */
             if (byte == 0x01) {
-                parser->addr = byte;        // 存地址
-								parser->rx_count = 1;
-                parser->state = STATE_ADDR; // 切到下一个状态
+                parser->addr = byte;
+                parser->rx_count = 1;
+                parser->state = STATE_ADDR;
             }
-            //byte != 0x01，不干事
             break;
 
-        //2. 接收功能码
         case STATE_ADDR:
             parser->func = byte;
+            parser->data_expected = get_data_expected(byte);
+            parser->data_len = 0;
             parser->state = STATE_FUNC;
             break;
 
-        //  3. 接收长度
         case STATE_FUNC:
-					if (byte > MAX_FRAME_DATA_LEN) 
-						{
-								parser_init(parser);
-								g_frame_err_overlen_cnt++;
-								return false;
-						}
-            parser->len = byte;
-            parser->data_index = 0;          // 重置数据区指针
-            parser->state = STATE_LEN;
-            break;
-
-        // 4. 接收数据区
-        case STATE_LEN:
-            // 把当前字节存入 data 数组
-            parser->data[parser->data_index++] = byte;
-
-            // 判断是否收够了 len 个字节
-            if (parser->data_index >= parser->len) {
-                parser->state = STATE_DATA;  // 数据收完了，切到 CRC 状态
-                parser->crc_count = 0;       // 重置 CRC 计数器
+            /* 第二层保护：非法功能码直接丢弃（可选） */
+            /* 开始收数据区 */
+            parser->data[parser->data_len++] = byte;
+            if (parser->data_len >= parser->data_expected) {
+                parser->state = STATE_DATA;
+                parser->crc_count = 0;
             }
             break;
 
-        //  5. 接收 CRC 校验（2个字节）
         case STATE_DATA:
+            /* 收 CRC（2 字节） */
             if (parser->crc_count == 0) {
-                parser->crc_low = byte;     // 存 CRC 低字节
+                parser->crc_low = byte;
                 parser->crc_count = 1;
             } else {
-                parser->crc_high = byte;      // 存 CRC 高字节
-                // 到这里，一帧完整数据已经收完了
-                // 立刻复位状态机，准备接收下一帧
+                parser->crc_high = byte;
                 parser->state = STATE_IDLE;
-                return true;  // 返回 true，告诉主循环拆出一帧了
+                return true;  // 一帧完整接收完毕
             }
             break;
 
         default:
-            parser_init(parser); // 出错了就复位
+            parser_init(parser);
             break;
     }
-    return false; // 还没收完，继续等待
+    return false;
 }
 
